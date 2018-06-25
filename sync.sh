@@ -31,7 +31,6 @@ ${UPLOAD_TOOL} --bucket=${BUCKET} \
 	--content-type=guess \
 	--insecure \
 	--process=${jobs} \
-	--resume=${LOG} \
 	--log-filename=${LOG} \
 	"${LOCAL_DIRS}"
 end=$(date)

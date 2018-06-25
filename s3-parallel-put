@@ -309,7 +309,12 @@ def putter(put, put_queue, stat_queue, options, connection, bucket):
                         content = string_io.getvalue()
                         md5 = compute_md5(StringIO(content))
                     if not options.dry_run:
-                        key.set_contents_from_string(content, headers, md5=md5, policy=options.grant, encrypt_key=options.encrypt_key)
+                        try:
+                            key.set_contents_from_string(content, headers, md5=md5, policy=options.grant, encrypt_key=options.encrypt_key)
+                        except Exception as e:
+                            # retry one time
+                            key.set_contents_from_string(content, headers, md5=md5, policy=options.grant, encrypt_key=options.encrypt_key)
+                            logger.error('%s' % (str(e)))
                 logger.info('%s %s> %s' % (
                     value.path, 'z' if should_gzip else '-', key.name))
                 stat_queue.put(dict(size=value.get_size()))
