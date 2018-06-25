@@ -82,6 +82,9 @@ from `SOURCE`.  Values are file contents.
 with `--dry-run`, this is also useful for testing.
 * `--processes=N` —  sets the number of parallel upload processes
 
+Example:
+
+  ```$ ./s3-parallel-put --bucket=mybucket --host=127.0.0.1 --port=8000 --put=stupid --content-type=guess --process=24 --log-filename=./upload.log --insecure /tmp/base/nfs1```
 
 Architecture
 ------------

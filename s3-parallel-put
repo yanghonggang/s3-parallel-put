@@ -43,7 +43,7 @@ import magic #python-magic
 import mimetypes
 
 import boto
-from boto.s3.connection import S3Connection
+import boto.s3.connection
 from boto.s3.acl import CannedACLStrings
 from boto.utils import compute_md5
 
@@ -188,8 +188,7 @@ def walk_tar(source, options):
                 yield (key_name, dict(content=content, path=path))
 
 
-def walk_s3(source, options):
-    connection = S3Connection(host=options.host, is_secure=options.secure)
+def walk_s3(source, connection, options):
     for key in connection.get_bucket(source).list():
         if excluded(key.name, options):
             continue
@@ -202,9 +201,12 @@ def walk_s3(source, options):
                 path='%s/%s' % (source, key.name)))
 
 
-def walker(walk, put_queue, sources, options):
+def walker(walk, put_queue, sources, options, connection=None):
     logger = logging.getLogger('%s[walker-%d]' % (os.path.basename(sys.argv[0]), current_process().pid))
-    pairs = chain(*imap(lambda source: walk(source, options), sources))
+    if connection:
+        pairs = chain(*imap(lambda source: walk(source, connection, options), sources))
+    else:
+        pairs = chain(*imap(lambda source: walk(source, options), sources))
     if options.resume:
         done = set()
         for filename in options.resume:
@@ -249,9 +251,8 @@ def put_copy(bucket, key_name, value):
     return bucket.copy_key(key_name, value.bucket_name, key_name)
 
 
-def putter(put, put_queue, stat_queue, options):
+def putter(put, put_queue, stat_queue, options, connection, bucket):
     logger = logging.getLogger('%s[putter-%d]' % (os.path.basename(sys.argv[0]), current_process().pid))
-    connection, bucket = None, None
     file_object_cache = FileObjectCache()
     # Figure out what content types we want to gzip
     if not options.gzip_type:  # default
@@ -274,10 +275,6 @@ def putter(put, put_queue, stat_queue, options):
         value = Value(file_object_cache, **value_kwargs)
         should_gzip = False
         try:
-            if connection is None:
-                connection = S3Connection(is_secure=options.secure, host=options.host)
-            if bucket is None:
-                bucket = connection.get_bucket(options.bucket)
             key = put(bucket, key_name, value)
             if key:
                 if value.should_copy_content():
@@ -351,6 +348,8 @@ def main(argv):
             help='set bucket region if not in us-east-1 (default new bucket region)')
     group.add_option('--host', default='s3.amazonaws.com',
             help='set AWS host name')
+    group.add_option('--port', default=80, type=int,
+            help='set AWS port')
     group.add_option('--insecure', action='store_false', dest='secure',
             help='use insecure connection')
     group.add_option('--secure', action='store_true', default=True, dest='secure',
@@ -416,23 +415,29 @@ def main(argv):
         return 1
     if not options.bucket_region:
         options.bucket_region = 'us-east-1'
-    connection = boto.s3.connect_to_region(options.bucket_region,
+    connection = boto.connect_s3(
        aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
        aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY'),
-       is_secure=True,
+       host=options.host,
+       port=options.port,
+       is_secure=options.secure,
        calling_format = boto.s3.connection.OrdinaryCallingFormat(),
        )
+
     bucket = connection.get_bucket(options.bucket)
-    del bucket
-    del connection
+
     start = time.time()
     put_queue = JoinableQueue(1024 * options.processes)
     stat_queue = JoinableQueue()
     walk = {'filesystem': walk_filesystem, 'tar': walk_tar, 's3': walk_s3}[options.walk]
-    walker_process = Process(target=walker, args=(walk, put_queue, args, options))
+    if options.walk == 's3':
+        walker_process = Process(target=walker, args=(walk, put_queue, args, options, connection))
+    else:
+        walker_process = Process(target=walker, args=(walk, put_queue, args, options))
     walker_process.start()
     put = {'add': put_add, 'stupid': put_stupid, 'update': put_update, 'copy': put_copy}[options.put]
-    putter_processes = list(islice(repeatedly(Process, target=putter, args=(put, put_queue, stat_queue, options)), options.processes))
+    putter_processes = list(islice(repeatedly(Process, target=putter, args=(put, put_queue, stat_queue, options,
+                            connection, bucket)), options.processes))
     for putter_process in putter_processes:
         putter_process.start()
     statter_process = Process(target=statter, args=(stat_queue, start, options))
