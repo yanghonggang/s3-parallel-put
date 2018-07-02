@@ -4,7 +4,7 @@ BUCKET="mybucket"
 HOST="127.0.0.1"
 PORT="8000"
 LOCAL_DIRS=$@
-LOG="./upload.log"
+LOG="./upload-${BUCKET}.log"
 
 export AWS_ACCESS_KEY_ID="0555b35654ad1656d804"
 export AWS_SECRET_ACCESS_KEY="h7GhxuBLTrlhVUyxSPUKUV8r/2EI4ngqJxD7iBdBYLhwluN30JaT3Q=="
